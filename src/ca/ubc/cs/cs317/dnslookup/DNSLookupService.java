@@ -16,7 +16,7 @@ public class DNSLookupService {
     private static DNSCache cache = DNSCache.getInstance();
 
     private static Random random = new Random();
-    private static int cur=0;
+    private static int cur = 0;
 
     /**
      * Main function, called when program is first invoked.
@@ -167,85 +167,6 @@ public class DNSLookupService {
      *                         returns an empty set.
      * @return A set of resource records corresponding to the specific query requested.
      */
-    private static void receiveDecode(byte[] receiveBuffer) {
-        int receiveID = ((receiveBuffer[0] & 0xFF) << 8) + (receiveBuffer[1] & 0xFF);
-        System.out.println("ReceiveID"+ receiveID);
-
-        int QCOUNT = ((receiveBuffer[4] & 0xFF) << 8) + (receiveBuffer[5] & 0xFF);
-        System.out.println("QCOUNT"+ QCOUNT);
-        int ANSCOUNT = ((receiveBuffer[6] & 0xFF) << 8) + (receiveBuffer[7] & 0xFF);
-        System.out.println("ANSCOUNT"+ ANSCOUNT);
-        int AUTHORITYCOUNT = ((receiveBuffer[8] & 0xFF) << 8) + (receiveBuffer[9] & 0xFF);
-        System.out.println("AUTHORITYCOUNT"+ AUTHORITYCOUNT);
-        int ADDCOUNT = ((receiveBuffer[10] & 0xFF) << 8) + (receiveBuffer[11] & 0xFF);
-        System.out.println("ADDCOUNT"+ ADDCOUNT);
-         cur = 12; // starting from Question section
-        int len = 1;
-        String qName = "";
-        while (len > 0) {
-            len = (receiveBuffer[cur] & 0xFF);
-            cur++; // go to next byte
-            if (len == 0)
-                break; // when 00
-            for (int i = 0; i < len; i++) {
-                qName = qName + (char) (receiveBuffer[cur] & 0xff);
-                cur++;
-            }
-            qName = qName + ".";
-        }
-
-        System.out.println("QNAME"+ qName);
-        int qTYPE = ((receiveBuffer[cur++] & 0xFF) << 8) + (receiveBuffer[cur++] & 0xFF);
-        System.out.println("QTYPE"+ qTYPE);
-        int QCLASS = ((receiveBuffer[cur++] & 0xFF) << 8) + (receiveBuffer[cur++] & 0xFF);
-        System.out.println("QCLASS"+ QCLASS);
-
-        String recordName=getNameFromRecord(cur,receiveBuffer);
-        int typeVal=((receiveBuffer[cur++] & 0xFF) << 8) + (receiveBuffer[cur++] & 0xFF);
-        System.out.println("TYPECODE"+typeVal);
-        int classVal=((receiveBuffer[cur++] & 0xFF) << 8) + (receiveBuffer[cur++] & 0xFF);
-        System.out.println("CLASSCODE"+ classVal);
-        long TTL= ((receiveBuffer[cur++] & 0xFF) << 24) + ((receiveBuffer[cur++] & 0xFF) << 16) + ((receiveBuffer[cur++] & 0xFF) << 8) + (receiveBuffer[cur++] & 0xFF);
-        System.out.println("TTL"+TTL);
-        int RDATALen=((receiveBuffer[cur++] & 0xFF) << 8) + (receiveBuffer[cur++] & 0xFF);
-        System.out.println("RDATALENGTH"+ RDATALen);
-        if(typeVal==2)
-            System.out.println(getNameFromRecord(cur,receiveBuffer));
-        if(typeVal==1)
-        {
-            String ipAdress="";
-            for(int i=0;i<RDATALen;i++)
-                ipAdress=ipAdress+(receiveBuffer[cur++] & 0xff)+".";
-            ipAdress.substring(0,ipAdress.length()-1);
-            System.out.println("IPADRESS"+ipAdress);
-        }
-    }
-    private static String getNameFromRecord(int num, byte[] receiveBuffer) {
-
-        int len = 1;
-        String rName = "";
-        while (len > 0) {
-            len = (receiveBuffer[num] & 0xFF);
-            num++; // go to next byte
-            if (len == 0)
-                break; // when 00
-            else if (len == 192) {
-                int newNum = (receiveBuffer[num] & 0xFF);
-                num++;
-                rName = rName + getNameFromRecord(newNum, receiveBuffer);
-                break;
-            } else {
-                for (int i = 0; i < len; i++) {
-                    rName = rName + (char) (receiveBuffer[num] & 0xff);
-                    num++;
-                }
-                rName = rName + ".";
-            }
-
-        }
-        cur=num;
-        return rName;
-    }
     private static Set<ResourceRecord> getResults(DNSNode node, int indirectionLevel) {
 
         if (indirectionLevel > MAX_INDIRECTION_LEVEL) {
@@ -257,31 +178,29 @@ public class DNSLookupService {
         System.out.println(node.getHostName());
         ByteArrayOutputStream bOutput = new ByteArrayOutputStream();
         DataOutputStream dOutput = new DataOutputStream(bOutput);
-        try
-        {
-        	dOutput.writeShort(0x0001); // random query id
-        	dOutput.writeShort(0x0100); // query flags
-        	dOutput.writeShort(0x0001);
-        	dOutput.writeShort(0x0000);
-        	dOutput.writeShort(0x0000);
-        	dOutput.writeShort(0x0000);
-        	
-        	String[] parts= node.getHostName().split("\\.");
-        	for(int i=0;i<parts.length;i++)
-        		{
-        		byte[] partBytes=parts[i].getBytes("UTF-8");
-        		dOutput.writeByte(parts[i].length());
-        		dOutput.write(partBytes);
-        		System.out.println(parts[i]);
-        		}
-        	dOutput.writeByte(0x00);
-        	dOutput.writeShort(0x0001);
-        	dOutput.writeShort(0x0001);
+        try {
+            dOutput.writeShort(0x0001); // random query id
+            dOutput.writeShort(0x0100); // query flags
+            dOutput.writeShort(0x0001);
+            dOutput.writeShort(0x0000);
+            dOutput.writeShort(0x0000);
+            dOutput.writeShort(0x0000);
 
-        	byte[] byteArray=bOutput.toByteArray();
-        	DatagramPacket requestPacket= new DatagramPacket(byteArray,byteArray.length,rootServer,DEFAULT_DNS_PORT);
-        	socket=new DatagramSocket();
-        	socket.send(requestPacket);
+            String[] parts = node.getHostName().split("\\.");
+            for (int i = 0; i < parts.length; i++) {
+                byte[] partBytes = parts[i].getBytes("UTF-8");
+                dOutput.writeByte(parts[i].length());
+                dOutput.write(partBytes);
+                System.out.println(parts[i]);
+            }
+            dOutput.writeByte(0x00);
+            dOutput.writeShort(0x0001);
+            dOutput.writeShort(0x0001);
+
+            byte[] byteArray = bOutput.toByteArray();
+            DatagramPacket requestPacket = new DatagramPacket(byteArray, byteArray.length, rootServer, DEFAULT_DNS_PORT);
+            socket = new DatagramSocket();
+            socket.send(requestPacket);
             byte[] bufferReceive = new byte[1024];
             DatagramPacket receivePacket = new DatagramPacket(bufferReceive, bufferReceive.length);
             socket.receive(receivePacket);
@@ -331,16 +250,92 @@ public class DNSLookupService {
 
             System.out.println("THIS");
             */
-        }
-        catch(IOException e)
-        {
-        	
-        }
-        finally
-        {
-        	
+        } catch (IOException e) {
+
+        } finally {
+
         }
         return cache.getCachedResults(node);
+    }
+
+    private static void receiveDecode(byte[] receiveBuffer) {
+        int receiveID = ((receiveBuffer[0] & 0xFF) << 8) + (receiveBuffer[1] & 0xFF);
+        System.out.println("ReceiveID " + receiveID);
+
+        int QCOUNT = ((receiveBuffer[4] & 0xFF) << 8) + (receiveBuffer[5] & 0xFF);
+        System.out.println("QCOUNT " + QCOUNT);
+        int ANSCOUNT = ((receiveBuffer[6] & 0xFF) << 8) + (receiveBuffer[7] & 0xFF);
+        System.out.println("ANSCOUNT " + ANSCOUNT);
+        int AUTHORITYCOUNT = ((receiveBuffer[8] & 0xFF) << 8) + (receiveBuffer[9] & 0xFF);
+        System.out.println("AUTHORITYCOUNT " + AUTHORITYCOUNT);
+        int ADDCOUNT = ((receiveBuffer[10] & 0xFF) << 8) + (receiveBuffer[11] & 0xFF);
+        System.out.println("ADDCOUNT " + ADDCOUNT);
+        cur = 12; // starting from Question section
+        int len = 1;
+        String qName = "";
+        while (len > 0) {
+            len = (receiveBuffer[cur] & 0xFF);
+            cur++; // go to next byte
+            if (len == 0)
+                break; // when 00
+            for (int i = 0; i < len; i++) {
+                qName = qName + (char) (receiveBuffer[cur] & 0xff);
+                cur++;
+            }
+            qName = qName + ".";
+        }
+
+        System.out.println("QNAME " + qName);
+        int qTYPE = ((receiveBuffer[cur++] & 0xFF) << 8) + (receiveBuffer[cur++] & 0xFF);
+        System.out.println("QTYPE " + qTYPE);
+        int QCLASS = ((receiveBuffer[cur++] & 0xFF) << 8) + (receiveBuffer[cur++] & 0xFF);
+        System.out.println("QCLASS " + QCLASS);
+
+        String recordName = getNameFromRecord(cur, receiveBuffer);
+        int typeVal = ((receiveBuffer[cur++] & 0xFF) << 8) + (receiveBuffer[cur++] & 0xFF);
+        System.out.println("TYPECODE " + typeVal);
+        int classVal = ((receiveBuffer[cur++] & 0xFF) << 8) + (receiveBuffer[cur++] & 0xFF);
+        System.out.println("CLASSCODE " + classVal);
+        long TTL = ((receiveBuffer[cur++] & 0xFF) << 24) + ((receiveBuffer[cur++] & 0xFF) << 16) + ((receiveBuffer[cur++] & 0xFF) << 8) + (receiveBuffer[cur++] & 0xFF);
+        System.out.println("TTL " + TTL);
+        int RDATALen = ((receiveBuffer[cur++] & 0xFF) << 8) + (receiveBuffer[cur++] & 0xFF);
+        System.out.println("RDATALENGTH " + RDATALen);
+        if (typeVal == 2)
+            System.out.println(getNameFromRecord(cur, receiveBuffer));
+        if (typeVal == 1) {
+            String ipAdress = "";
+            for (int i = 0; i < RDATALen; i++)
+                ipAdress = ipAdress + (receiveBuffer[cur++] & 0xff) + ".";
+            ipAdress.substring(0, ipAdress.length() - 1);
+            System.out.println("IPADRESS " + ipAdress);
+        }
+    }
+
+    private static String getNameFromRecord(int num, byte[] receiveBuffer) {
+
+        int len = 1;
+        String rName = "";
+        while (len > 0) {
+            len = (receiveBuffer[num] & 0xFF);
+            num++; // go to next byte
+            if (len == 0)
+                break; // when 00
+            else if (len == 192) {
+                int newNum = (receiveBuffer[num] & 0xFF);
+                num++;
+                rName = rName + getNameFromRecord(newNum, receiveBuffer);
+                break;
+            } else {
+                for (int i = 0; i < len; i++) {
+                    rName = rName + (char) (receiveBuffer[num] & 0xff);
+                    num++;
+                }
+                rName = rName + ".";
+            }
+
+        }
+        cur = num;
+        return rName;
     }
 
     /**
