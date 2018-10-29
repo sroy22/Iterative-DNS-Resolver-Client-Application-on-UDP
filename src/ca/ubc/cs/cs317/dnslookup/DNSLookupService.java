@@ -1,6 +1,9 @@
 package ca.ubc.cs.cs317.dnslookup;
 
-import java.io.*;
+import java.io.ByteArrayOutputStream;
+import java.io.Console;
+import java.io.DataOutputStream;
+import java.io.IOException;
 import java.net.*;
 import java.util.*;
 
@@ -16,7 +19,7 @@ public class DNSLookupService {
     private static DNSCache cache = DNSCache.getInstance();
 
     private static Random random = new Random();
-    private static int cur=0;
+    private static int cur = 0;
 
     /**
      * Main function, called when program is first invoked.
@@ -156,69 +159,57 @@ public class DNSLookupService {
         printResults(node, getResults(node, 0));
 
     }
-    private static ResourceRecord decodeRecord(byte[] receiveBuffer)
-    {
-        String recordName=getNameFromRecord(cur,receiveBuffer);
-        int typeVal=((receiveBuffer[cur++] & 0xFF) << 8) + (receiveBuffer[cur++] & 0xFF);
-        System.out.println("TYPECODE"+typeVal);
-        int classVal=((receiveBuffer[cur++] & 0xFF) << 8) + (receiveBuffer[cur++] & 0xFF);
-        System.out.println("CLASSCODE"+ classVal);
-        long TTL= ((receiveBuffer[cur++] & 0xFF) << 24) + ((receiveBuffer[cur++] & 0xFF) << 16) + ((receiveBuffer[cur++] & 0xFF) << 8) + (receiveBuffer[cur++] & 0xFF);
-        System.out.println("TTL"+TTL);
-        int RDATALen=((receiveBuffer[cur++] & 0xFF) << 8) + (receiveBuffer[cur++] & 0xFF);
-        System.out.println("RDATALENGTH"+ RDATALen);
-        ResourceRecord record=null;
-        if(typeVal==2) {
+
+    private static ResourceRecord decodeRecord(byte[] receiveBuffer) {
+        String recordName = getNameFromRecord(cur, receiveBuffer);
+        int typeVal = ((receiveBuffer[cur++] & 0xFF) << 8) + (receiveBuffer[cur++] & 0xFF);
+        System.out.println("TYPECODE" + typeVal);
+        int classVal = ((receiveBuffer[cur++] & 0xFF) << 8) + (receiveBuffer[cur++] & 0xFF);
+        System.out.println("CLASSCODE" + classVal);
+        long TTL = ((receiveBuffer[cur++] & 0xFF) << 24) + ((receiveBuffer[cur++] & 0xFF) << 16) + ((receiveBuffer[cur++] & 0xFF) << 8) + (receiveBuffer[cur++] & 0xFF);
+        System.out.println("TTL" + TTL);
+        int RDATALen = ((receiveBuffer[cur++] & 0xFF) << 8) + (receiveBuffer[cur++] & 0xFF);
+        System.out.println("RDATALENGTH" + RDATALen);
+        ResourceRecord record = null;
+        if (typeVal == 2) { // TODO switch for response types A/NS/etc
             System.out.println(getNameFromRecord(cur, receiveBuffer));
-            String name=getNameFromRecord(cur,receiveBuffer);
-            record= new ResourceRecord(recordName,RecordType.getByCode(typeVal),TTL,InetAddress.getByName(ipAdress));
-            }
-            else if(typeVal==1)
-        {
-            String ipAdress="";
-            for(int i=0;i<RDATALen;i++)
-                ipAdress=ipAdress+(receiveBuffer[cur++] & 0xff)+".";
-            ipAdress.substring(0,ipAdress.length()-1);
-            System.out.println("IPADRESS"+ipAdress);
-            try
-            {
-                record= new ResourceRecord(recordName,RecordType.getByCode(typeVal),TTL,InetAddress.getByName(ipAdress));
-            }
-            catch (Exception e)
-            {
+            String name = getNameFromRecord(cur, receiveBuffer);
+            try {
+                record = new ResourceRecord(recordName, RecordType.getByCode(typeVal), TTL, InetAddress.getByName(name));
+            } catch (Exception e) {
 
             }
-        }
-        else
-        {
+        } else if (typeVal == 1) { // IPv4
+            String ipAdress = "";
+            for (int i = 0; i < RDATALen; i++)
+                ipAdress = ipAdress + (receiveBuffer[cur++] & 0xff) + ".";
+            ipAdress.substring(0, ipAdress.length() - 1);
+            System.out.println("IPADRESS" + ipAdress);
+            try {
+                record = new ResourceRecord(recordName, RecordType.getByCode(typeVal), TTL, InetAddress.getByName(ipAdress));
+            } catch (Exception e) {
+
+            }
+        } else { // TODO IPv6 (28) and CNAME (5) with NS (2)
 
         }
-        return  record;
+        return record;
     }
-    /**
-     * Finds all the result for a specific node.
-     *
-     * @param node             Host and record type to be used for search.
-     * @param indirectionLevel Control to limit the number of recursive calls due to CNAME redirection.
-     *                         The initial call should be made with 0 (zero), while recursive calls for
-     *                         regarding CNAME results should increment this value by 1. Once this value
-     *                         reaches MAX_INDIRECTION_LEVEL, the function prints an error message and
-     *                         returns an empty set.
-     * @return A set of resource records corresponding to the specific query requested.
-     */
-    private static void receiveDecode(byte[] receiveBuffer) {
-        int receiveID = ((receiveBuffer[0] & 0xFF) << 8) + (receiveBuffer[1] & 0xFF);
-        System.out.println("ReceiveID"+ receiveID);
 
+    private static void receiveDecode(byte[] receiveBuffer) {
+        int receiveID = ((receiveBuffer[0] & 0xFF) << 8) + (receiveBuffer[1] & 0xFF); // TODO check receive ID = initial ID
+        System.out.println("ReceiveID" + receiveID);
+        // TODO check receiveBuffer[2] and [3] for response
         int QCOUNT = ((receiveBuffer[4] & 0xFF) << 8) + (receiveBuffer[5] & 0xFF);
-        System.out.println("QCOUNT"+ QCOUNT);
+        System.out.println("QCOUNT" + QCOUNT);
         int ANSCOUNT = ((receiveBuffer[6] & 0xFF) << 8) + (receiveBuffer[7] & 0xFF);
-        System.out.println("ANSCOUNT"+ ANSCOUNT);
+        System.out.println("ANSCOUNT" + ANSCOUNT);
         int AUTHORITYCOUNT = ((receiveBuffer[8] & 0xFF) << 8) + (receiveBuffer[9] & 0xFF);
-        System.out.println("AUTHORITYCOUNT"+ AUTHORITYCOUNT);
+        System.out.println("AUTHORITYCOUNT" + AUTHORITYCOUNT);
         int ADDCOUNT = ((receiveBuffer[10] & 0xFF) << 8) + (receiveBuffer[11] & 0xFF);
-        System.out.println("ADDCOUNT"+ ADDCOUNT);
-         cur = 12; // starting from Question section
+        System.out.println("ADDCOUNT" + ADDCOUNT);
+
+        cur = 12; // starting from Question section 12 byte
         int len = 1;
         String qName = "";
         while (len > 0) {
@@ -233,15 +224,15 @@ public class DNSLookupService {
             qName = qName + ".";
         }
 
-        System.out.println("QNAME"+ qName);
+        System.out.println("QNAME" + qName);
         int qTYPE = ((receiveBuffer[cur++] & 0xFF) << 8) + (receiveBuffer[cur++] & 0xFF);
-        System.out.println("QTYPE"+ qTYPE);
+        System.out.println("QTYPE" + qTYPE);
         int QCLASS = ((receiveBuffer[cur++] & 0xFF) << 8) + (receiveBuffer[cur++] & 0xFF);
-        System.out.println("QCLASS"+ QCLASS);
-
+        System.out.println("QCLASS" + QCLASS);
 
 
     }
+
     private static String getNameFromRecord(int num, byte[] receiveBuffer) {
 
         int len = 1;
@@ -251,8 +242,8 @@ public class DNSLookupService {
             num++; // go to next byte
             if (len == 0)
                 break; // when 00
-            else if (len == 192) {
-                int newNum = (receiveBuffer[num] & 0xFF);
+            else if (len == 192) { // 0xc0
+                int newNum = (receiveBuffer[num] & 0xFF); // read offset
                 num++;
                 rName = rName + getNameFromRecord(newNum, receiveBuffer);
                 break;
@@ -265,9 +256,21 @@ public class DNSLookupService {
             }
 
         }
-        cur=num;
+        cur = num;
         return rName;
     }
+
+    /**
+     * Finds all the result for a specific node.
+     *
+     * @param node             Host and record type to be used for search.
+     * @param indirectionLevel Control to limit the number of recursive calls due to CNAME redirection.
+     *                         The initial call should be made with 0 (zero), while recursive calls for
+     *                         regarding CNAME results should increment this value by 1. Once this value
+     *                         reaches MAX_INDIRECTION_LEVEL, the function prints an error message and
+     *                         returns an empty set.
+     * @return A set of resource records corresponding to the specific query requested.
+     */
     private static Set<ResourceRecord> getResults(DNSNode node, int indirectionLevel) {
 
         if (indirectionLevel > MAX_INDIRECTION_LEVEL) {
@@ -279,31 +282,29 @@ public class DNSLookupService {
         System.out.println(node.getHostName());
         ByteArrayOutputStream bOutput = new ByteArrayOutputStream();
         DataOutputStream dOutput = new DataOutputStream(bOutput);
-        try
-        {
-        	dOutput.writeShort(0x0001); // random query id
-        	dOutput.writeShort(0x0100); // query flags
-        	dOutput.writeShort(0x0001);
-        	dOutput.writeShort(0x0000);
-        	dOutput.writeShort(0x0000);
-        	dOutput.writeShort(0x0000);
-        	
-        	String[] parts= node.getHostName().split("\\.");
-        	for(int i=0;i<parts.length;i++)
-        		{
-        		byte[] partBytes=parts[i].getBytes("UTF-8");
-        		dOutput.writeByte(parts[i].length());
-        		dOutput.write(partBytes);
-        		System.out.println(parts[i]);
-        		}
-        	dOutput.writeByte(0x00);
-        	dOutput.writeShort(0x0001);
-        	dOutput.writeShort(0x0001);
+        try {
+            dOutput.writeShort(0x0001); // random query id TODO random
+            dOutput.writeShort(0x0100); // query flags TODO check if need recursion
+            dOutput.writeShort(0x0001); // # questions
+            dOutput.writeShort(0x0000); // response
+            dOutput.writeShort(0x0000); // response
+            dOutput.writeShort(0x0000); // response
 
-        	byte[] byteArray=bOutput.toByteArray();
-        	DatagramPacket requestPacket= new DatagramPacket(byteArray,byteArray.length,rootServer,DEFAULT_DNS_PORT);
-        	socket=new DatagramSocket();
-        	socket.send(requestPacket);
+            String[] parts = node.getHostName().split("\\.");
+            for (int i = 0; i < parts.length; i++) {
+                byte[] partBytes = parts[i].getBytes("UTF-8");
+                dOutput.writeByte(parts[i].length()); // write length
+                dOutput.write(partBytes); // write actual bytes
+                System.out.println(parts[i]);
+            }
+            dOutput.writeByte(0x00); // end question (with 00)
+            dOutput.writeShort(0x0001); // qtype TODO change to node.getType()
+            dOutput.writeShort(0x0001); // qclass
+
+            byte[] byteArray = bOutput.toByteArray();
+            DatagramPacket requestPacket = new DatagramPacket(byteArray, byteArray.length, rootServer, DEFAULT_DNS_PORT);
+            socket = new DatagramSocket();
+            socket.send(requestPacket);
             byte[] bufferReceive = new byte[1024];
             DatagramPacket receivePacket = new DatagramPacket(bufferReceive, bufferReceive.length);
             socket.receive(receivePacket);
@@ -353,14 +354,10 @@ public class DNSLookupService {
 
             System.out.println("THIS");
             */
-        }
-        catch(IOException e)
-        {
-        	
-        }
-        finally
-        {
-        	
+        } catch (IOException e) {
+
+        } finally {
+
         }
         return cache.getCachedResults(node);
     }
@@ -374,7 +371,6 @@ public class DNSLookupService {
      * @param server Address of the server to be used for the query.
      */
     private static void retrieveResultsFromServer(DNSNode node, InetAddress server) {
-
         // TODO To be completed by the student
     }
 
