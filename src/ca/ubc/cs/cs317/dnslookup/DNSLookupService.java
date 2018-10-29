@@ -154,8 +154,47 @@ public class DNSLookupService {
 
         DNSNode node = new DNSNode(hostName, type);
         printResults(node, getResults(node, 0));
-    }
 
+    }
+    private static ResourceRecord decodeRecord(byte[] receiveBuffer)
+    {
+        String recordName=getNameFromRecord(cur,receiveBuffer);
+        int typeVal=((receiveBuffer[cur++] & 0xFF) << 8) + (receiveBuffer[cur++] & 0xFF);
+        System.out.println("TYPECODE"+typeVal);
+        int classVal=((receiveBuffer[cur++] & 0xFF) << 8) + (receiveBuffer[cur++] & 0xFF);
+        System.out.println("CLASSCODE"+ classVal);
+        long TTL= ((receiveBuffer[cur++] & 0xFF) << 24) + ((receiveBuffer[cur++] & 0xFF) << 16) + ((receiveBuffer[cur++] & 0xFF) << 8) + (receiveBuffer[cur++] & 0xFF);
+        System.out.println("TTL"+TTL);
+        int RDATALen=((receiveBuffer[cur++] & 0xFF) << 8) + (receiveBuffer[cur++] & 0xFF);
+        System.out.println("RDATALENGTH"+ RDATALen);
+        ResourceRecord record=null;
+        if(typeVal==2) {
+            System.out.println(getNameFromRecord(cur, receiveBuffer));
+            String name=getNameFromRecord(cur,receiveBuffer);
+            record= new ResourceRecord(recordName,RecordType.getByCode(typeVal),TTL,InetAddress.getByName(ipAdress));
+            }
+            else if(typeVal==1)
+        {
+            String ipAdress="";
+            for(int i=0;i<RDATALen;i++)
+                ipAdress=ipAdress+(receiveBuffer[cur++] & 0xff)+".";
+            ipAdress.substring(0,ipAdress.length()-1);
+            System.out.println("IPADRESS"+ipAdress);
+            try
+            {
+                record= new ResourceRecord(recordName,RecordType.getByCode(typeVal),TTL,InetAddress.getByName(ipAdress));
+            }
+            catch (Exception e)
+            {
+
+            }
+        }
+        else
+        {
+
+        }
+        return  record;
+    }
     /**
      * Finds all the result for a specific node.
      *
@@ -200,25 +239,8 @@ public class DNSLookupService {
         int QCLASS = ((receiveBuffer[cur++] & 0xFF) << 8) + (receiveBuffer[cur++] & 0xFF);
         System.out.println("QCLASS"+ QCLASS);
 
-        String recordName=getNameFromRecord(cur,receiveBuffer);
-        int typeVal=((receiveBuffer[cur++] & 0xFF) << 8) + (receiveBuffer[cur++] & 0xFF);
-        System.out.println("TYPECODE"+typeVal);
-        int classVal=((receiveBuffer[cur++] & 0xFF) << 8) + (receiveBuffer[cur++] & 0xFF);
-        System.out.println("CLASSCODE"+ classVal);
-        long TTL= ((receiveBuffer[cur++] & 0xFF) << 24) + ((receiveBuffer[cur++] & 0xFF) << 16) + ((receiveBuffer[cur++] & 0xFF) << 8) + (receiveBuffer[cur++] & 0xFF);
-        System.out.println("TTL"+TTL);
-        int RDATALen=((receiveBuffer[cur++] & 0xFF) << 8) + (receiveBuffer[cur++] & 0xFF);
-        System.out.println("RDATALENGTH"+ RDATALen);
-        if(typeVal==2)
-            System.out.println(getNameFromRecord(cur,receiveBuffer));
-        if(typeVal==1)
-        {
-            String ipAdress="";
-            for(int i=0;i<RDATALen;i++)
-                ipAdress=ipAdress+(receiveBuffer[cur++] & 0xff)+".";
-            ipAdress.substring(0,ipAdress.length()-1);
-            System.out.println("IPADRESS"+ipAdress);
-        }
+
+
     }
     private static String getNameFromRecord(int num, byte[] receiveBuffer) {
 
