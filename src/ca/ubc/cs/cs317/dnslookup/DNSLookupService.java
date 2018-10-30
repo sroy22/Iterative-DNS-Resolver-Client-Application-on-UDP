@@ -193,21 +193,23 @@ public class DNSLookupService {
         } else { // TODO IPv6 (28) and CNAME (5) with NS (2)
 
         }
+
+        cache.addResult(record);
+
         return record;
     }
 
     private static void receiveDecode(byte[] receiveBuffer) {
         int receiveID = ((receiveBuffer[0] & 0xFF) << 8) + (receiveBuffer[1] & 0xFF); // TODO check receive ID = initial ID
-        System.out.println("ReceiveID" + receiveID);
-        // TODO check receiveBuffer[2] and [3] for response
+        System.out.println("ReceiveID " + receiveID);
         int QCOUNT = ((receiveBuffer[4] & 0xFF) << 8) + (receiveBuffer[5] & 0xFF);
-        System.out.println("QCOUNT" + QCOUNT);
+        System.out.println("QCOUNT " + QCOUNT);
         int ANSCOUNT = ((receiveBuffer[6] & 0xFF) << 8) + (receiveBuffer[7] & 0xFF);
-        System.out.println("ANSCOUNT" + ANSCOUNT);
+        System.out.println("ANSCOUNT " + ANSCOUNT);
         int AUTHORITYCOUNT = ((receiveBuffer[8] & 0xFF) << 8) + (receiveBuffer[9] & 0xFF);
-        System.out.println("AUTHORITYCOUNT" + AUTHORITYCOUNT);
+        System.out.println("AUTHORITYCOUNT " + AUTHORITYCOUNT);
         int ADDCOUNT = ((receiveBuffer[10] & 0xFF) << 8) + (receiveBuffer[11] & 0xFF);
-        System.out.println("ADDCOUNT" + ADDCOUNT);
+        System.out.println("ADDCOUNT " + ADDCOUNT);
 
         cur = 12; // starting from Question section 12 byte
         int len = 1;
@@ -224,13 +226,21 @@ public class DNSLookupService {
             qName = qName + ".";
         }
 
-        System.out.println("QNAME" + qName);
+        System.out.println("QNAME " + qName);
         int qTYPE = ((receiveBuffer[cur++] & 0xFF) << 8) + (receiveBuffer[cur++] & 0xFF);
-        System.out.println("QTYPE" + qTYPE);
+        System.out.println("QTYPE " + qTYPE);
         int QCLASS = ((receiveBuffer[cur++] & 0xFF) << 8) + (receiveBuffer[cur++] & 0xFF);
-        System.out.println("QCLASS" + QCLASS);
+        System.out.println("QCLASS " + QCLASS);
 
-
+        for (int i = 0; i < ANSCOUNT; i++) {
+            decodeRecord(receiveBuffer);
+        }
+        for (int i = 0; i < AUTHORITYCOUNT; i++) {
+            decodeRecord(receiveBuffer);
+        }
+        for (int i = 0; i < ADDCOUNT; i++) {
+            decodeRecord(receiveBuffer);
+        }
     }
 
     private static String getNameFromRecord(int num, byte[] receiveBuffer) {
@@ -298,13 +308,15 @@ public class DNSLookupService {
                 System.out.println(parts[i]);
             }
             dOutput.writeByte(0x00); // end question (with 00)
-            dOutput.writeShort(0x0001); // qtype TODO change to node.getType()
-            dOutput.writeShort(0x0001); // qclass
+
+            dOutput.writeShort(0x0001); // qtype: 1; A records
+            dOutput.writeShort(0x0001); // qclass: 1; using internet
 
             byte[] byteArray = bOutput.toByteArray();
             DatagramPacket requestPacket = new DatagramPacket(byteArray, byteArray.length, rootServer, DEFAULT_DNS_PORT);
             socket = new DatagramSocket();
             socket.send(requestPacket);
+
             byte[] bufferReceive = new byte[1024];
             DatagramPacket receivePacket = new DatagramPacket(bufferReceive, bufferReceive.length);
             socket.receive(receivePacket);
