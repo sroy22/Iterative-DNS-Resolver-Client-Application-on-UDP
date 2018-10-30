@@ -163,35 +163,59 @@ public class DNSLookupService {
     private static ResourceRecord decodeRecord(byte[] receiveBuffer) {
         String recordName = getNameFromRecord(cur, receiveBuffer);
         int typeVal = ((receiveBuffer[cur++] & 0xFF) << 8) + (receiveBuffer[cur++] & 0xFF);
-        System.out.println("TYPECODE" + typeVal);
+//        System.out.println("TYPECODE " + typeVal);
         int classVal = ((receiveBuffer[cur++] & 0xFF) << 8) + (receiveBuffer[cur++] & 0xFF);
-        System.out.println("CLASSCODE" + classVal);
+//        System.out.println("CLASSCODE " + classVal);
         long TTL = ((receiveBuffer[cur++] & 0xFF) << 24) + ((receiveBuffer[cur++] & 0xFF) << 16) + ((receiveBuffer[cur++] & 0xFF) << 8) + (receiveBuffer[cur++] & 0xFF);
-        System.out.println("TTL" + TTL);
+//        System.out.println("TTL " + TTL);
         int RDATALen = ((receiveBuffer[cur++] & 0xFF) << 8) + (receiveBuffer[cur++] & 0xFF);
-        System.out.println("RDATALENGTH" + RDATALen);
+//        System.out.println("RDATALENGTH " + RDATALen);
+        verboseTracing = true;
         ResourceRecord record = null;
-        if (typeVal == 2) { // TODO switch for response types A/NS/etc
-            System.out.println(getNameFromRecord(cur, receiveBuffer));
-            String name = getNameFromRecord(cur, receiveBuffer);
-            try {
-                record = new ResourceRecord(recordName, RecordType.getByCode(typeVal), TTL, InetAddress.getByName(name));
-            } catch (Exception e) {
+        switch (typeVal) {
+            case 1: // Type A
+                String ipAddress = "";
+                for (int i = 0; i < RDATALen; i++) {
+                    ipAddress = ipAddress + (receiveBuffer[cur++] & 0xff) + ".";
+                }
+                ipAddress = ipAddress.substring(0, ipAddress.length() - 1);
+//                System.out.println("IPADDRESS " + ipAddress);
+                try {
+                    record = new ResourceRecord(recordName, RecordType.getByCode(typeVal), TTL, InetAddress.getByName(ipAddress));
+                    verbosePrintResourceRecord(record, 0); // other has rtype 0
+                } catch (Exception e) {
 
-            }
-        } else if (typeVal == 1) { // IPv4
-            String ipAdress = "";
-            for (int i = 0; i < RDATALen; i++)
-                ipAdress = ipAdress + (receiveBuffer[cur++] & 0xff) + ".";
-            ipAdress.substring(0, ipAdress.length() - 1);
-            System.out.println("IPADRESS" + ipAdress);
-            try {
-                record = new ResourceRecord(recordName, RecordType.getByCode(typeVal), TTL, InetAddress.getByName(ipAdress));
-            } catch (Exception e) {
+                }
+                break;
+            case 2: // Type NS
+            case 5: // Type CNAME
+                String name = getNameFromRecord(cur, receiveBuffer);
+                System.out.println(name);
+                try {
+                    record = new ResourceRecord(recordName, RecordType.getByCode(typeVal), TTL, InetAddress.getByName(name));
+                } catch (Exception e) {
 
-            }
-        } else { // TODO IPv6 (28) and CNAME (5) with NS (2)
+                }
+                break;
+            case 28: // Type AAAA IPv6
+                String ipv6Address = "";
+                for (int i = 0; i < RDATALen / 2; i++) { // 8 octets, length 16
+                    ipv6Address = ipv6Address +
+                            Integer.toHexString(((receiveBuffer[cur++] & 0xFF) << 8) + (receiveBuffer[cur++] & 0xFF))
+                            + ":";
+                }
+                ipv6Address = ipv6Address.substring(0, ipv6Address.length() - 1);
+//                System.out.println("IPADDRESS " + ipv6Address);
+                try {
+                    record = new ResourceRecord(recordName, RecordType.getByCode(typeVal), TTL, InetAddress.getByName(ipv6Address));
+                    verbosePrintResourceRecord(record, 28); // other has rtype 0
+                } catch (Exception e) {
 
+                }
+                break;
+            default:
+                record = null;
+                break;
         }
 
         cache.addResult(record);
@@ -200,8 +224,10 @@ public class DNSLookupService {
     }
 
     private static void receiveDecode(byte[] receiveBuffer) {
-        int receiveID = ((receiveBuffer[0] & 0xFF) << 8) + (receiveBuffer[1] & 0xFF); // TODO check receive ID = initial ID
+        int receiveID = ((receiveBuffer[0] & 0xFF) << 8) + (receiveBuffer[1] & 0xFF);
         System.out.println("ReceiveID " + receiveID);
+        // TODO check receive ID = initial ID
+
         int QCOUNT = ((receiveBuffer[4] & 0xFF) << 8) + (receiveBuffer[5] & 0xFF);
         System.out.println("QCOUNT " + QCOUNT);
         int ANSCOUNT = ((receiveBuffer[6] & 0xFF) << 8) + (receiveBuffer[7] & 0xFF);
@@ -212,14 +238,13 @@ public class DNSLookupService {
         System.out.println("ADDCOUNT " + ADDCOUNT);
 
         cur = 12; // starting from Question section 12 byte
-        int len = 1;
         String qName = "";
-        while (len > 0) {
-            len = (receiveBuffer[cur] & 0xFF);
+        while (true) {
+            int length = (receiveBuffer[cur] & 0xFF);
             cur++; // go to next byte
-            if (len == 0)
+            if (length == 0)
                 break; // when 00
-            for (int i = 0; i < len; i++) {
+            for (int i = 0; i < length; i++) {
                 qName = qName + (char) (receiveBuffer[cur] & 0xff);
                 cur++;
             }
@@ -235,30 +260,30 @@ public class DNSLookupService {
         for (int i = 0; i < ANSCOUNT; i++) {
             decodeRecord(receiveBuffer);
         }
+
         for (int i = 0; i < AUTHORITYCOUNT; i++) {
             decodeRecord(receiveBuffer);
         }
+
         for (int i = 0; i < ADDCOUNT; i++) {
             decodeRecord(receiveBuffer);
         }
     }
 
     private static String getNameFromRecord(int num, byte[] receiveBuffer) {
-
-        int len = 1;
         String rName = "";
-        while (len > 0) {
-            len = (receiveBuffer[num] & 0xFF);
+        while (true) {
+            int length = (receiveBuffer[num] & 0xFF);
             num++; // go to next byte
-            if (len == 0)
+            if (length == 0)
                 break; // when 00
-            else if (len == 192) { // 0xc0
+            else if (length == 192) { // 0xc0
                 int newNum = (receiveBuffer[num] & 0xFF); // read offset
                 num++;
                 rName = rName + getNameFromRecord(newNum, receiveBuffer);
                 break;
             } else {
-                for (int i = 0; i < len; i++) {
+                for (int i = 0; i < length; i++) {
                     rName = rName + (char) (receiveBuffer[num] & 0xff);
                     num++;
                 }
@@ -267,6 +292,9 @@ public class DNSLookupService {
 
         }
         cur = num;
+        if (rName.charAt(rName.length() - 1) == '.') {
+            rName = rName.substring(0, rName.length() - 1);
+        }
         return rName;
     }
 
@@ -289,6 +317,21 @@ public class DNSLookupService {
         }
 
         // TODO To be completed by the student
+
+        retrieveResultsFromServer(node, rootServer);
+
+        return cache.getCachedResults(node);
+    }
+
+    /**
+     * Retrieves DNS results from a specified DNS server. Queries are sent in iterative mode,
+     * and the query is repeated with a new server if the provided one is non-authoritative.
+     * Results are stored in the cache.
+     *
+     * @param node   Host name and record type to be used for the query.
+     * @param server Address of the server to be used for the query.
+     */
+    private static void retrieveResultsFromServer(DNSNode node, InetAddress server) {
         System.out.println(node.getHostName());
         ByteArrayOutputStream bOutput = new ByteArrayOutputStream();
         DataOutputStream dOutput = new DataOutputStream(bOutput);
@@ -321,68 +364,8 @@ public class DNSLookupService {
             DatagramPacket receivePacket = new DatagramPacket(bufferReceive, bufferReceive.length);
             socket.receive(receivePacket);
             receiveDecode(bufferReceive);
-            /*
-            //for(int i=0;i<bufferReceive.length;i++)
-             //   System.out.println(bufferReceive[i]);
-            System.out.println("\n\nReceived: " + receivePacket.getLength() + " bytes");
-            DataInputStream readByte = new DataInputStream(new ByteArrayInputStream(bufferReceive));
-            /*StringBuffer sb = new StringBuffer();
-            /*for (byte b : bufferReceive) {
-                sb.append(Integer.toHexString((int) (b & 0xff)));
-            }
-            */
-            /*
-            StringBuilder sb = new StringBuilder();
-
-            for (byte b : bufferReceive) {
-                sb.append(String.format("%02X ", b));
-            }
-
-            String finalResponse=sb.toString();
-            String[] response=finalResponse.split("\\s+");
-            for(int i=0;i<response.length;i++)
-                System.out.println(response[i]);
-            System.out.println("Query ID" +response[0]+response[1]);
-            System.out.println("Flags"+ response[2]+response[3]);
-            System.out.println("Question"+response[4]+response[5]);
-            System.out.println("Answer"+response[6]+response[7]);
-            System.out.println("Authority"+response[8]+response[9]);
-            System.out.println("Additional"+response[10]+response[11]);
-
-            int num=12;
-            while(!response[num].equals("00"))
-            {
-                int len=Integer.parseInt(response[num],16);
-                int i;
-                for( i=num+1;i<=(num+len);i++)
-                    System.out.println((char)In
-
-                            teger.parseInt(response[i],16));
-                num=i;
-
-
-            }
-
-
-            System.out.println("THIS");
-            */
         } catch (IOException e) {
-
-        } finally {
-
         }
-        return cache.getCachedResults(node);
-    }
-
-    /**
-     * Retrieves DNS results from a specified DNS server. Queries are sent in iterative mode,
-     * and the query is repeated with a new server if the provided one is non-authoritative.
-     * Results are stored in the cache.
-     *
-     * @param node   Host name and record type to be used for the query.
-     * @param server Address of the server to be used for the query.
-     */
-    private static void retrieveResultsFromServer(DNSNode node, InetAddress server) {
         // TODO To be completed by the student
     }
 
