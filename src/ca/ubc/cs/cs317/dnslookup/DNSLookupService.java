@@ -4,6 +4,8 @@ import java.io.*;
 import java.net.*;
 import java.util.*;
 
+import static java.util.Random.*;
+
 public class DNSLookupService {
 
     private static final int DEFAULT_DNS_PORT = 53;
@@ -168,21 +170,34 @@ public class DNSLookupService {
         int RDATALen=((receiveBuffer[cur++] & 0xFF) << 8) + (receiveBuffer[cur++] & 0xFF);
         System.out.println("RDATALENGTH"+ RDATALen);
         ResourceRecord record=null;
-        if(typeVal==2) {
-            System.out.println(getNameFromRecord(cur, receiveBuffer));
+        if(typeVal==2 || typeVal==5) {
+
             String name=getNameFromRecord(cur,receiveBuffer);
-            record= new ResourceRecord(recordName,RecordType.getByCode(typeVal),TTL,InetAddress.getByName(ipAdress));
+
+            try
+            {
+            record= new ResourceRecord(recordName,RecordType.getByCode(typeVal),TTL,InetAddress.getByName(name));
+            //System.out.println("HSDHFSD");
+            cache.addResult(record);
+            return record;
             }
+            catch (Exception e)
+            {
+
+            }}
             else if(typeVal==1)
         {
             String ipAdress="";
             for(int i=0;i<RDATALen;i++)
                 ipAdress=ipAdress+(receiveBuffer[cur++] & 0xff)+".";
-            ipAdress.substring(0,ipAdress.length()-1);
+            ipAdress=ipAdress.substring(0,ipAdress.length()-1);
             System.out.println("IPADRESS"+ipAdress);
             try
             {
+
                 record= new ResourceRecord(recordName,RecordType.getByCode(typeVal),TTL,InetAddress.getByName(ipAdress));
+                cache.addResult(record);
+                return record;
             }
             catch (Exception e)
             {
@@ -191,8 +206,13 @@ public class DNSLookupService {
         }
         else
         {
+           System.out.println("IPV6 or CNAME");
 
         }
+        //System.out.println("This is record");
+
+
+        System.out.println("Going here");
         return  record;
     }
     /**
@@ -206,18 +226,20 @@ public class DNSLookupService {
      *                         returns an empty set.
      * @return A set of resource records corresponding to the specific query requested.
      */
-    private static void receiveDecode(byte[] receiveBuffer) {
+    private static ArrayList<ResourceRecord> receiveDecode(byte[] receiveBuffer, DNSNode node) {
         int receiveID = ((receiveBuffer[0] & 0xFF) << 8) + (receiveBuffer[1] & 0xFF);
-        System.out.println("ReceiveID"+ receiveID);
-
+        //System.out.println("ReceiveID"+ receiveID);
+        int AA=(receiveBuffer[2] & 0x04) >>>2;
+        //System.out.println("THIS IS AA");
+        //System.out.println(AA);
         int QCOUNT = ((receiveBuffer[4] & 0xFF) << 8) + (receiveBuffer[5] & 0xFF);
-        System.out.println("QCOUNT"+ QCOUNT);
+        //System.out.println("QCOUNT"+ QCOUNT);
         int ANSCOUNT = ((receiveBuffer[6] & 0xFF) << 8) + (receiveBuffer[7] & 0xFF);
-        System.out.println("ANSCOUNT"+ ANSCOUNT);
+        //System.out.println("ANSCOUNT"+ ANSCOUNT);
         int AUTHORITYCOUNT = ((receiveBuffer[8] & 0xFF) << 8) + (receiveBuffer[9] & 0xFF);
-        System.out.println("AUTHORITYCOUNT"+ AUTHORITYCOUNT);
+        //System.out.println("AUTHORITYCOUNT"+ AUTHORITYCOUNT);
         int ADDCOUNT = ((receiveBuffer[10] & 0xFF) << 8) + (receiveBuffer[11] & 0xFF);
-        System.out.println("ADDCOUNT"+ ADDCOUNT);
+        //System.out.println("ADDCOUNT"+ ADDCOUNT);
          cur = 12; // starting from Question section
         int len = 1;
         String qName = "";
@@ -233,14 +255,60 @@ public class DNSLookupService {
             qName = qName + ".";
         }
 
-        System.out.println("QNAME"+ qName);
+        //System.out.println("QNAME"+ qName);
         int qTYPE = ((receiveBuffer[cur++] & 0xFF) << 8) + (receiveBuffer[cur++] & 0xFF);
-        System.out.println("QTYPE"+ qTYPE);
+        //System.out.println("QTYPE"+ qTYPE);
         int QCLASS = ((receiveBuffer[cur++] & 0xFF) << 8) + (receiveBuffer[cur++] & 0xFF);
-        System.out.println("QCLASS"+ QCLASS);
+        //System.out.println("QCLASS"+ QCLASS);
+        ArrayList<ResourceRecord> answers= new ArrayList<ResourceRecord>();
+        ArrayList<ResourceRecord> NServers= new ArrayList<ResourceRecord>();
+        ArrayList<ResourceRecord> addServers= new ArrayList<ResourceRecord>();
+        ResourceRecord r;
+        for(int k=0;k<ANSCOUNT;k++) {
+            r = decodeRecord(receiveBuffer);
+            if (r != null)
+                answers.add(r);
+            }
 
+        for(int k=0;k<AUTHORITYCOUNT;k++) {
+            r=decodeRecord(receiveBuffer);
+            if(r!=null)
+                NServers.add(r);
+        }
+        for(int k=0;k<ADDCOUNT;k++) {
 
-
+            r=decodeRecord(receiveBuffer);
+            if(r!=null)
+                addServers.add(r);
+        }
+        if(AA==0) {
+            ArrayList<ResourceRecord> AANameServers= new ArrayList<ResourceRecord>();
+            for(ResourceRecord ns: NServers)
+            {
+                for(ResourceRecord additional: addServers)
+                    if(additional.getTextResult().equals(ns.getTextResult()) && additional.getType().getCode()==1)
+                        AANameServers.add(additional);
+            }
+            if(!AANameServers.isEmpty())
+                return AANameServers;
+            else
+            {
+                for(ResourceRecord ns: NServers)
+                {
+                    DNSNode NServerNode= new DNSNode(ns.getTextResult(),RecordType.getByCode(1));
+                    Set<ResourceRecord> possibleRecords= getResults(NServerNode,0);
+                    if(!possibleRecords.isEmpty()) {
+                        AANameServers.addAll(possibleRecords);
+                        return AANameServers;
+                        }
+                }
+            }
+        }
+        else
+        {
+            return null;
+        }
+        return new ArrayList<ResourceRecord>();
     }
     private static String getNameFromRecord(int num, byte[] receiveBuffer) {
 
@@ -265,6 +333,9 @@ public class DNSLookupService {
             }
 
         }
+        if (rName.length() > 1 && rName.charAt(rName.length() - 1) == '.') {
+            rName = rName.substring(0, rName.length() - 1);
+        }
         cur=num;
         return rName;
     }
@@ -276,95 +347,106 @@ public class DNSLookupService {
         }
 
         // TODO To be completed by the student
-        System.out.println(node.getHostName());
+        InetAddress NServer = rootServer; // setting up root server
+        Set<ResourceRecord> cacheResults = cache.getCachedResults(node); // searching in cache
+
+        if (!cacheResults.isEmpty())
+            return cacheResults;
+       // DNSNode cNode = new DNSNode(node.getHostName(), RecordType.getByCode(5)); //creating a CNAME record
+
+        for (int i = 0; i < 30; i++) { System.out.println(i+ "This is i");
+                if (NServer != null) {
+                    System.out.println("AABB");
+                    NServer = getNextServer(NServer, node); // next server to look into
+
+                    cacheResults = cache.getCachedResults(node); // new server contents go into cache
+                    if (!cacheResults.isEmpty())
+                        {System.out.println("IN CACHE");
+                            return cacheResults;
+                        }
+
+                }
+                else
+                {
+                    cacheResults=cache.getCachedResults(node);
+                    if(!cacheResults.isEmpty())
+                        return cacheResults;
+                }
+
+            }
+
+
+        cacheResults = cache.getCachedResults(node); // searching in cache
+
+        if (!cacheResults.isEmpty())
+            return cacheResults;
+        return Collections.emptySet();
+
+    }
+    private static InetAddress getNextServer(InetAddress server, DNSNode node) {
         ByteArrayOutputStream bOutput = new ByteArrayOutputStream();
         DataOutputStream dOutput = new DataOutputStream(bOutput);
+        try {
+            //dOutput.writeShort(random.nextInt(65536));
+            //dOutput.writeShort(0x0001); // to be changed
+            short s = (short) random.nextInt(Short.MAX_VALUE + 1);
+            dOutput.writeShort(s);
+            System.out.println("Making query");
+            System.out.println(s);
+            dOutput.writeShort(0x0000); // query flags
+            dOutput.writeShort(0x0001);
+            dOutput.writeShort(0x0000);
+            dOutput.writeShort(0x0000);
+            dOutput.writeShort(0x0000);
+
+            String[] parts = node.getHostName().split("\\.");
+            for (int i = 0; i < parts.length; i++) {
+                byte[] partBytes = parts[i].getBytes("UTF-8");
+                dOutput.writeByte(parts[i].length());
+                dOutput.write(partBytes);
+                //System.out.println(parts[i]);
+            }
+
+            dOutput.writeByte(0x00);
+            int QType=node.getType().getCode();
+
+            //dOutput.writeByte((byte) ((QType >>> 8) & 0xff));
+            //dOutput.writeByte((byte)(QType & 0xff));
+            dOutput.writeShort((short) QType);
+            //dOutput.writeShort(1);
+            //dOutput.writeShort(0x0001); // to be changed
+            dOutput.writeShort(0x0001);
+
+            byte[] byteArray = bOutput.toByteArray();
+            DatagramPacket requestPacket = new DatagramPacket(byteArray, byteArray.length, server, DEFAULT_DNS_PORT);
+            socket = new DatagramSocket();
+            socket.setSoTimeout(5000);
+            socket.send(requestPacket);
+        }
+        catch (Exception e) {
+        }
+        byte[] bufferReceive = new byte[1024];
+        DatagramPacket receivePacket = new DatagramPacket(bufferReceive, bufferReceive.length);
         try
         {
-        	dOutput.writeShort(0x0001); // random query id
-        	dOutput.writeShort(0x0100); // query flags
-        	dOutput.writeShort(0x0001);
-        	dOutput.writeShort(0x0000);
-        	dOutput.writeShort(0x0000);
-        	dOutput.writeShort(0x0000);
-        	
-        	String[] parts= node.getHostName().split("\\.");
-        	for(int i=0;i<parts.length;i++)
-        		{
-        		byte[] partBytes=parts[i].getBytes("UTF-8");
-        		dOutput.writeByte(parts[i].length());
-        		dOutput.write(partBytes);
-        		System.out.println(parts[i]);
-        		}
-        	dOutput.writeByte(0x00);
-        	dOutput.writeShort(0x0001);
-        	dOutput.writeShort(0x0001);
-
-        	byte[] byteArray=bOutput.toByteArray();
-        	DatagramPacket requestPacket= new DatagramPacket(byteArray,byteArray.length,rootServer,DEFAULT_DNS_PORT);
-        	socket=new DatagramSocket();
-        	socket.send(requestPacket);
-            byte[] bufferReceive = new byte[1024];
-            DatagramPacket receivePacket = new DatagramPacket(bufferReceive, bufferReceive.length);
             socket.receive(receivePacket);
-            receiveDecode(bufferReceive);
-            /*
-            //for(int i=0;i<bufferReceive.length;i++)
-             //   System.out.println(bufferReceive[i]);
-            System.out.println("\n\nReceived: " + receivePacket.getLength() + " bytes");
-            DataInputStream readByte = new DataInputStream(new ByteArrayInputStream(bufferReceive));
-            /*StringBuffer sb = new StringBuffer();
-            /*for (byte b : bufferReceive) {
-                sb.append(Integer.toHexString((int) (b & 0xff)));
-            }
-            */
-            /*
-            StringBuilder sb = new StringBuilder();
-
-            for (byte b : bufferReceive) {
-                sb.append(String.format("%02X ", b));
-            }
-
-            String finalResponse=sb.toString();
-            String[] response=finalResponse.split("\\s+");
-            for(int i=0;i<response.length;i++)
-                System.out.println(response[i]);
-            System.out.println("Query ID" +response[0]+response[1]);
-            System.out.println("Flags"+ response[2]+response[3]);
-            System.out.println("Question"+response[4]+response[5]);
-            System.out.println("Answer"+response[6]+response[7]);
-            System.out.println("Authority"+response[8]+response[9]);
-            System.out.println("Additional"+response[10]+response[11]);
-
-            int num=12;
-            while(!response[num].equals("00"))
-            {
-                int len=Integer.parseInt(response[num],16);
-                int i;
-                for( i=num+1;i<=(num+len);i++)
-                    System.out.println((char)In
-
-                            teger.parseInt(response[i],16));
-                num=i;
-
-
-            }
-
-
-            System.out.println("THIS");
-            */
         }
-        catch(IOException e)
+        catch (Exception e)
         {
-        	
+
         }
-        finally
+        ArrayList<ResourceRecord> nameServers=new ArrayList<ResourceRecord>();
+        nameServers=receiveDecode(bufferReceive, node);
+        if(nameServers != null) // not authoritative
         {
-        	
+            return nameServers.get(0).getInetResult();
         }
-        return cache.getCachedResults(node);
+        else
+        {
+            return null;
+        }
+
     }
-
     /**
      * Retrieves DNS results from a specified DNS server. Queries are sent in iterative mode,
      * and the query is repeated with a new server if the provided one is non-authoritative.
