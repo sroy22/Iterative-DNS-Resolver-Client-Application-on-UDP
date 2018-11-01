@@ -170,13 +170,13 @@ public class DNSLookupService {
         int RDATALen=((receiveBuffer[cur++] & 0xFF) << 8) + (receiveBuffer[cur++] & 0xFF);
         System.out.println("RDATALENGTH"+ RDATALen);
         ResourceRecord record=null;
-        if(typeVal==2 || typeVal==5) {
+        if(typeVal==2) {
 
             String name=getNameFromRecord(cur,receiveBuffer);
 
             try
             {
-            record= new ResourceRecord(recordName,RecordType.getByCode(typeVal),TTL,InetAddress.getByName(name));
+            record= new ResourceRecord(recordName,RecordType.getByCode(typeVal),TTL,name);
             //System.out.println("HSDHFSD");
             cache.addResult(record);
             return record;
@@ -204,9 +204,25 @@ public class DNSLookupService {
 
             }
         }
+        else if(typeVal==5)
+        {
+            String name=getNameFromRecord(cur,receiveBuffer);
+            System.out.println("CNAME NAME"+ name);
+            try
+            {
+                record= new ResourceRecord(recordName,RecordType.getByCode(typeVal),TTL,name);
+                System.out.println("HSDHFSD");
+                cache.addResult(record);
+                return record;
+            }
+            catch (Exception e)
+            {
+
+            }
+
+        }
         else
         {
-           System.out.println("IPV6 or CNAME");
 
         }
         //System.out.println("This is record");
@@ -235,11 +251,11 @@ public class DNSLookupService {
         int QCOUNT = ((receiveBuffer[4] & 0xFF) << 8) + (receiveBuffer[5] & 0xFF);
         //System.out.println("QCOUNT"+ QCOUNT);
         int ANSCOUNT = ((receiveBuffer[6] & 0xFF) << 8) + (receiveBuffer[7] & 0xFF);
-        //System.out.println("ANSCOUNT"+ ANSCOUNT);
+        System.out.println("ANSCOUNT"+ ANSCOUNT);
         int AUTHORITYCOUNT = ((receiveBuffer[8] & 0xFF) << 8) + (receiveBuffer[9] & 0xFF);
-        //System.out.println("AUTHORITYCOUNT"+ AUTHORITYCOUNT);
+        System.out.println("AUTHORITYCOUNT"+ AUTHORITYCOUNT);
         int ADDCOUNT = ((receiveBuffer[10] & 0xFF) << 8) + (receiveBuffer[11] & 0xFF);
-        //System.out.println("ADDCOUNT"+ ADDCOUNT);
+        System.out.println("ADDCOUNT"+ ADDCOUNT);
          cur = 12; // starting from Question section
         int len = 1;
         String qName = "";
@@ -292,17 +308,22 @@ public class DNSLookupService {
             if(!AANameServers.isEmpty())
                 return AANameServers;
             else
-            {
+            {   int count=0;
+
                 for(ResourceRecord ns: NServers)
-                {
+                {   System.out.println("GET TEXT RESULT"+ ns.getTextResult());
+                    System.out.println(count++);
                     DNSNode NServerNode= new DNSNode(ns.getTextResult(),RecordType.getByCode(1));
                     Set<ResourceRecord> possibleRecords= getResults(NServerNode,0);
                     if(!possibleRecords.isEmpty()) {
+                        System.out.println("OH YEAH");
                         AANameServers.addAll(possibleRecords);
                         return AANameServers;
                         }
                 }
+
             }
+
         }
         else
         {
@@ -349,37 +370,45 @@ public class DNSLookupService {
         // TODO To be completed by the student
         InetAddress NServer = rootServer; // setting up root server
         Set<ResourceRecord> cacheResults = cache.getCachedResults(node); // searching in cache
+        DNSNode cnode = new DNSNode(node.getHostName(),RecordType.getByCode(5));
 
         if (!cacheResults.isEmpty())
             return cacheResults;
-       // DNSNode cNode = new DNSNode(node.getHostName(), RecordType.getByCode(5)); //creating a CNAME record
+        DNSNode cNode = new DNSNode(node.getHostName(), RecordType.getByCode(5)); //creating a CNAME record
 
-        for (int i = 0; i < 30; i++) { System.out.println(i+ "This is i");
+        for (int i = 0; i < 30; i++) {
+            System.out.println(i + "This is i");
+            cacheResults = cache.getCachedResults(cnode);
+            if (!cacheResults.isEmpty()) {
+                System.out.println("CNAME CHECK");
+                Set<ResourceRecord> cnamepos = new HashSet<ResourceRecord>();
+                for (ResourceRecord r : cacheResults) {
+                    cnamepos.addAll(getResults(new DNSNode(r.getTextResult(), node.getType()), indirectionLevel + 1));
+                }
+                System.out.println("Possible cname record"+ cnamepos.size());
+                return cnamepos;
+            } else {
                 if (NServer != null) {
                     System.out.println("AABB");
                     NServer = getNextServer(NServer, node); // next server to look into
 
                     cacheResults = cache.getCachedResults(node); // new server contents go into cache
-                    if (!cacheResults.isEmpty())
-                        {System.out.println("IN CACHE");
-                            return cacheResults;
-                        }
+                    if (!cacheResults.isEmpty()) {
+                        System.out.println("IN CACHE");
+                        return cacheResults;
+                    }
 
-                }
-                else
-                {
-                    cacheResults=cache.getCachedResults(node);
-                    if(!cacheResults.isEmpty())
+                } else {
+                    cacheResults = cache.getCachedResults(node);
+                    if (!cacheResults.isEmpty())
                         return cacheResults;
                 }
 
             }
+        }
 
 
-        cacheResults = cache.getCachedResults(node); // searching in cache
 
-        if (!cacheResults.isEmpty())
-            return cacheResults;
         return Collections.emptySet();
 
     }
@@ -398,7 +427,7 @@ public class DNSLookupService {
             dOutput.writeShort(0x0000);
             dOutput.writeShort(0x0000);
             dOutput.writeShort(0x0000);
-
+            System.out.println("Making query" + server.getHostAddress()+ " "+ node.getHostName());
             String[] parts = node.getHostName().split("\\.");
             for (int i = 0; i < parts.length; i++) {
                 byte[] partBytes = parts[i].getBytes("UTF-8");
