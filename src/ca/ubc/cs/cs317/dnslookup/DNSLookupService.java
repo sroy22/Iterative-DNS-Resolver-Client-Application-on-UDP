@@ -6,6 +6,8 @@ import java.io.DataOutputStream;
 import java.net.*;
 import java.util.*;
 
+import static java.util.Random.*;
+
 public class DNSLookupService {
 
     private static final int DEFAULT_DNS_PORT = 53;
