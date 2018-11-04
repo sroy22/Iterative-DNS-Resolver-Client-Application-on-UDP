@@ -18,9 +18,11 @@ public class DNSLookupService {
     private static DNSCache cache = DNSCache.getInstance();
 
     private static Random random = new Random();
+
     private static int cur = 0;
     private static Set<Integer> queryIDs = new HashSet<>();
     private static int queryID;
+    private static InetAddress nextServer;
 
     /**
      * Main function, called when program is first invoked.
@@ -164,22 +166,18 @@ public class DNSLookupService {
     private static ResourceRecord decodeRecord(byte[] receiveBuffer) {
         String recordName = getNameFromRecord(cur, receiveBuffer);
         int typeVal = ((receiveBuffer[cur++] & 0xFF) << 8) + (receiveBuffer[cur++] & 0xFF);
-//        System.out.println("TYPECODE " + typeVal);
         int classVal = ((receiveBuffer[cur++] & 0xFF) << 8) + (receiveBuffer[cur++] & 0xFF);
-//        System.out.println("CLASSCODE " + classVal);
         long TTL = ((receiveBuffer[cur++] & 0xFF) << 24) + ((receiveBuffer[cur++] & 0xFF) << 16) + ((receiveBuffer[cur++] & 0xFF) << 8) + (receiveBuffer[cur++] & 0xFF);
-//        System.out.println("TTL " + TTL);
         int RDATALen = ((receiveBuffer[cur++] & 0xFF) << 8) + (receiveBuffer[cur++] & 0xFF);
-//        System.out.println("RDATALENGTH " + RDATALen);
         ResourceRecord record = null;
+
+        String ipAddress = "";
         switch (typeVal) {
             case 1: // Type A
-                String ipAddress = "";
                 for (int i = 0; i < RDATALen; i++) {
                     ipAddress = ipAddress + (receiveBuffer[cur++] & 0xff) + ".";
                 }
                 ipAddress = ipAddress.substring(0, ipAddress.length() - 1);
-//                System.out.println("IPADDRESS " + ipAddress);
                 try {
                     record = new ResourceRecord(recordName, RecordType.getByCode(typeVal), TTL, InetAddress.getByName(ipAddress));
                 } catch (Exception e) {
@@ -189,66 +187,52 @@ public class DNSLookupService {
             case 2: // Type NS
             case 5: // Type CNAME
                 String name = getNameFromRecord(cur, receiveBuffer);
-                System.out.println(name);
-                try {
-                    record = new ResourceRecord(recordName, RecordType.getByCode(typeVal), TTL, name);
-                } catch (Exception e) {
-
-                }
+                record = new ResourceRecord(recordName, RecordType.getByCode(typeVal), TTL, name);
                 break;
             case 28: // Type AAAA IPv6
-                String ipv6Address = "";
                 for (int i = 0; i < RDATALen / 2; i++) { // 8 octets, length 16
-                    ipv6Address = ipv6Address +
+                    ipAddress = ipAddress +
                             Integer.toHexString(((receiveBuffer[cur++] & 0xFF) << 8) + (receiveBuffer[cur++] & 0xFF))
                             + ":";
                 }
-                ipv6Address = ipv6Address.substring(0, ipv6Address.length() - 1);
-//                System.out.println("IPADDRESS " + ipv6Address);
+                ipAddress = ipAddress.substring(0, ipAddress.length() - 1);
                 try {
-                    record = new ResourceRecord(recordName, RecordType.getByCode(typeVal), TTL, InetAddress.getByName(ipv6Address));
-                    verbosePrintResourceRecord(record, 28); // other has rtype 0
+                    record = new ResourceRecord(recordName, RecordType.getByCode(typeVal), TTL, InetAddress.getByName(ipAddress));
+                    //                    verbosePrintResourceRecord(record, 28); // other has rtype 0 TODO needed?
                 } catch (Exception e) {
 
                 }
                 break;
             default:
-                record = null;
+                record = new ResourceRecord(recordName, RecordType.getByCode(typeVal), TTL, ipAddress);
                 break;
-        }
-
-        if (record != null) {
-            cache.addResult(record);
         }
 
         return record;
     }
 
-    private static ArrayList<ResourceRecord> receiveDecode(byte[] receiveBuffer) {
+    private static List<ResourceRecord> receiveDecode(byte[] receiveBuffer) {
         int receiveID = ((receiveBuffer[0] & 0xFF) << 8) + (receiveBuffer[1] & 0xFF);
-        System.out.println("ReceiveID " + receiveID);
         if (queryID != receiveID) {
             return null;
         }
 
         int AA = (receiveBuffer[2] & 0x04) >>> 2;
+        boolean isAuthoritativeServer = AA == 1;
 
         int QCOUNT = ((receiveBuffer[4] & 0xFF) << 8) + (receiveBuffer[5] & 0xFF);
-        System.out.println("QCOUNT " + QCOUNT);
         int ANSCOUNT = ((receiveBuffer[6] & 0xFF) << 8) + (receiveBuffer[7] & 0xFF);
-        System.out.println("ANSCOUNT " + ANSCOUNT);
         int AUTHORITYCOUNT = ((receiveBuffer[8] & 0xFF) << 8) + (receiveBuffer[9] & 0xFF);
-        System.out.println("AUTHORITYCOUNT " + AUTHORITYCOUNT);
         int ADDCOUNT = ((receiveBuffer[10] & 0xFF) << 8) + (receiveBuffer[11] & 0xFF);
-        System.out.println("ADDCOUNT " + ADDCOUNT);
 
         cur = 12; // starting from Question section 12 byte
         String qName = "";
         while (true) {
             int length = (receiveBuffer[cur] & 0xFF);
             cur++; // go to next byte
-            if (length == 0)
+            if (length == 0) {
                 break; // when 00
+            }
             for (int i = 0; i < length; i++) {
                 qName = qName + (char) (receiveBuffer[cur] & 0xff);
                 cur++;
@@ -256,65 +240,58 @@ public class DNSLookupService {
             qName = qName + ".";
         }
 
-//        System.out.println("QNAME " + qName);
         int qTYPE = ((receiveBuffer[cur++] & 0xFF) << 8) + (receiveBuffer[cur++] & 0xFF);
-//        System.out.println("QTYPE " + qTYPE);
         int QCLASS = ((receiveBuffer[cur++] & 0xFF) << 8) + (receiveBuffer[cur++] & 0xFF);
-//        System.out.println("QCLASS " + QCLASS);
 
-        ArrayList<ResourceRecord> answers = new ArrayList<>();
-        ArrayList<ResourceRecord> nameServers = new ArrayList<>();
-        ArrayList<ResourceRecord> additionalServers = new ArrayList<>();
-        ResourceRecord r;
+        List<ResourceRecord> answers = decodeRecordsToList(receiveBuffer, ANSCOUNT);
+        List<ResourceRecord> nameServers = decodeRecordsToList(receiveBuffer, AUTHORITYCOUNT);
+        List<ResourceRecord> additionalServers = decodeRecordsToList(receiveBuffer, ADDCOUNT);
 
-        for (int i = 0; i < ANSCOUNT; i++) {
-            r = decodeRecord(receiveBuffer);
-            if (r != null) {
-                answers.add(r);
+        if (!isAuthoritativeServer) {
+            return matchAuthoritativeServerToAdditional(nameServers, additionalServers);
+        }
+        return null;
+    }
+
+    private static List<ResourceRecord> decodeRecordsToList(byte[] receiveBuffer, int count) {
+        List<ResourceRecord> list = new ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            ResourceRecord resourceRecord = decodeRecord(receiveBuffer);
+            if (resourceRecord != null) {
+                list.add(resourceRecord);
+                cache.addResult(resourceRecord);
             }
         }
+        return list;
+    }
 
-        for (int i = 0; i < AUTHORITYCOUNT; i++) {
-            r = decodeRecord(receiveBuffer);
-            if (r != null) {
-                nameServers.add(r);
-            }
-        }
-
-        for (int i = 0; i < ADDCOUNT; i++) {
-            r = decodeRecord(receiveBuffer);
-            if (r != null) {
-                additionalServers.add(r);
-            }
-        }
-
-        if (AA == 0) {
-            ArrayList<ResourceRecord> AANameServers = new ArrayList<>();
-            for (ResourceRecord nameServer : nameServers) {
-                for (ResourceRecord additionalServer : additionalServers) {
-                    if (additionalServer.getTextResult().equals(nameServer.getTextResult()) &&
-                            additionalServer.getType().getCode() == 1) {
-                        AANameServers.add(additionalServer);
-                    }
+    private static List<ResourceRecord> matchAuthoritativeServerToAdditional(List<ResourceRecord> nameServers,
+                                                                             List<ResourceRecord> additionalServers) {
+        List<ResourceRecord> AANameServers = new ArrayList<>();
+        // Look for IP address of Authoritative server in Additional
+        for (ResourceRecord nameServer : nameServers) {
+            for (ResourceRecord additionalServer : additionalServers) {
+                if (additionalServer.getTextResult().equals(nameServer.getTextResult()) &&
+                        additionalServer.getType().getCode() == 1) {
+                    AANameServers.add(additionalServer);
                 }
             }
+        }
+        // If IP address was found, return Authoritative servers
+        if (!AANameServers.isEmpty()) {
+            return AANameServers;
+        }
 
-            if (!AANameServers.isEmpty()) {
+        // Otherwise getResults using Authoritative server then return Authoritative servers
+        for (ResourceRecord nameServer : nameServers) {
+            DNSNode nameServerNode = new DNSNode(nameServer.getTextResult(), RecordType.A);
+            Set<ResourceRecord> possibleRecords = getResults(nameServerNode, 0);
+            if (!possibleRecords.isEmpty()) {
+                AANameServers.addAll(possibleRecords);
                 return AANameServers;
-            } else {
-                int count = 0;
-                for (ResourceRecord nameServer : nameServers) {
-                    System.out.println("GET TEXT RESULT " + nameServer.getTextResult());
-                    System.out.println(count++);
-                    DNSNode nameServerNode = new DNSNode(nameServer.getTextResult(), RecordType.getByCode(1));
-                    Set<ResourceRecord> possibleRecords = getResults(nameServerNode, 0);
-                    if (!possibleRecords.isEmpty()) {
-                        AANameServers.addAll(possibleRecords);
-                        return AANameServers;
-                    }
-                }
             }
         }
+
         return null;
     }
 
@@ -323,9 +300,9 @@ public class DNSLookupService {
         while (true) {
             int length = (receiveBuffer[num] & 0xFF);
             num++; // go to next byte
-            if (length == 0)
+            if (length == 0) {
                 break; // when 00
-            else if (length == 192) { // 0xc0
+            } else if (length == 192) { // 0xc0
                 int newNum = (receiveBuffer[num] & 0xFF); // read offset
                 num++;
                 rName = rName + getNameFromRecord(newNum, receiveBuffer);
@@ -368,53 +345,53 @@ public class DNSLookupService {
 
         InetAddress nameServer = rootServer; // setting up root server
         Set<ResourceRecord> cacheResults = cache.getCachedResults(node); // searching in cache
-
         if (!cacheResults.isEmpty()) {
             return cacheResults;
         }
-        DNSNode cnameNode = new DNSNode(node.getHostName(), RecordType.getByCode(5)); //creating a CNAME record
 
-        for (int i = 0; i < 30; i++) {
-            System.out.println(i + "This is i");
+        DNSNode cnameNode = new DNSNode(node.getHostName(), RecordType.CNAME); //creating a CNAME record
+
+        for (int i = 0; i < 50; i++) {
             cacheResults = cache.getCachedResults(cnameNode);
             if (!cacheResults.isEmpty()) {
-                System.out.println("CNAME CHECK");
                 Set<ResourceRecord> possibleCNames = new HashSet<>();
                 for (ResourceRecord r : cacheResults) {
                     possibleCNames.addAll(getResults(new DNSNode(r.getTextResult(), node.getType()), indirectionLevel + 1));
                 }
-                System.out.println("Possible cname record " + possibleCNames.size());
+
                 return possibleCNames;
             } else {
                 if (nameServer != null) {
-                    System.out.println("AABB");
-                    nameServer = getNextServer(nameServer, node); // next server to look into
-
-                    cacheResults = cache.getCachedResults(node); // new server contents go into cache
-                    if (!cacheResults.isEmpty()) {
-                        System.out.println("IN CACHE");
-                        return cacheResults;
-                    }
-
-                } else {
-                    cacheResults = cache.getCachedResults(node);
-                    if (!cacheResults.isEmpty()) {
-                        return cacheResults;
-                    }
+                    retrieveResultsFromServer(node, nameServer); // next server to look into
+                    nameServer = nextServer;
                 }
 
+                cacheResults = cache.getCachedResults(node); // new server contents go into cache
+                if (!cacheResults.isEmpty()) {
+                    return cacheResults;
+                }
             }
-
         }
         return Collections.emptySet();
     }
 
-    private static InetAddress getNextServer(InetAddress server, DNSNode node) {
+    /**
+     * Retrieves DNS results from a specified DNS server. Queries are sent in iterative mode,
+     * and the query is repeated with a new server if the provided one is non-authoritative.
+     * Results are stored in the cache.
+     *
+     * @param node   Host name and record type to be used for the query.
+     * @param server Address of the server to be used for the query.
+     */
+    private static void retrieveResultsFromServer(DNSNode node, InetAddress server) {
+        // TODO To be completed by the student
+
         ByteArrayOutputStream bOutput = new ByteArrayOutputStream();
         DataOutputStream dOutput = new DataOutputStream(bOutput);
         DatagramPacket requestPacket = null;
         queryID = random.nextInt(65536); // range [0, 65535]
 
+        // Ensures unique query ID
         while (!queryIDs.add(queryID)) {
             queryID = random.nextInt(65536);
         }
@@ -445,7 +422,6 @@ public class DNSLookupService {
             socket = new DatagramSocket();
             socket.setSoTimeout(5000);
             socket.send(requestPacket);
-
         } catch (Exception e) {
 
         }
@@ -454,34 +430,19 @@ public class DNSLookupService {
         DatagramPacket receivePacket = new DatagramPacket(bufferReceive, bufferReceive.length);
         try {
             socket.receive(receivePacket);
-        } catch (Exception e) {
+        } catch (SocketTimeoutException e) {
             try {
                 socket.send(requestPacket);
                 socket.receive(receivePacket);
             } catch (Exception exception) {
                 // TODO verbosePrint
-                return null;
             }
+        } catch (Exception e) {
+
         }
 
-        ArrayList<ResourceRecord> nameServers = receiveDecode(bufferReceive);
-        if (nameServers != null) { // not authoritative
-            return nameServers.get(0).getInetResult();
-        } else {
-            return null;
-        }
-    }
-
-    /**
-     * Retrieves DNS results from a specified DNS server. Queries are sent in iterative mode,
-     * and the query is repeated with a new server if the provided one is non-authoritative.
-     * Results are stored in the cache.
-     *
-     * @param node   Host name and record type to be used for the query.
-     * @param server Address of the server to be used for the query.
-     */
-    private static void retrieveResultsFromServer(DNSNode node, InetAddress server) {
-        // TODO To be completed by the student
+        List<ResourceRecord> nameServers = receiveDecode(bufferReceive);
+        nextServer = nameServers != null? nameServers.get(0).getInetResult() : null;
     }
 
     private static void verbosePrintResourceRecord(ResourceRecord record, int rtype) {
