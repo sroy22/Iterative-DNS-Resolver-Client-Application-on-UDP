@@ -1,13 +1,8 @@
 package ca.ubc.cs.cs317.dnslookup;
 
-import sun.plugin.dom.html.ns4.NS4DOMObject;
-import sun.security.tools.keytool.Resources_sv;
-
-import javax.xml.bind.annotation.adapters.XmlJavaTypeAdapter;
 import java.io.ByteArrayOutputStream;
 import java.io.Console;
 import java.io.DataOutputStream;
-import java.io.IOException;
 import java.net.*;
 import java.util.*;
 
@@ -24,6 +19,8 @@ public class DNSLookupService {
 
     private static Random random = new Random();
     private static int cur = 0;
+    private static Set<Integer> queryIDs = new HashSet<>();
+    private static int queryID;
 
     /**
      * Main function, called when program is first invoked.
@@ -227,7 +224,7 @@ public class DNSLookupService {
         return record;
     }
 
-    private static ArrayList<ResourceRecord> receiveDecode(byte[] receiveBuffer, int queryID) {
+    private static ArrayList<ResourceRecord> receiveDecode(byte[] receiveBuffer) {
         int receiveID = ((receiveBuffer[0] & 0xFF) << 8) + (receiveBuffer[1] & 0xFF);
         System.out.println("ReceiveID " + receiveID);
         if (queryID != receiveID) {
@@ -415,16 +412,21 @@ public class DNSLookupService {
     private static InetAddress getNextServer(InetAddress server, DNSNode node) {
         ByteArrayOutputStream bOutput = new ByteArrayOutputStream();
         DataOutputStream dOutput = new DataOutputStream(bOutput);
-        int queryID = -1;
+        DatagramPacket requestPacket = null;
+        queryID = random.nextInt(65536); // range [0, 65535]
+
+        while (!queryIDs.add(queryID)) {
+            queryID = random.nextInt(65536);
+        }
+
         try {
-            queryID = random.nextInt(65536); // range [0, 65535]
+            // Write query packet
             dOutput.writeShort(queryID);
             dOutput.writeShort(0x0000); // query flags
             dOutput.writeShort(0x0001);
             dOutput.writeShort(0x0000);
             dOutput.writeShort(0x0000);
             dOutput.writeShort(0x0000);
-            System.out.println("Making query " + server.getHostAddress() + " " + node.getHostName());
 
             String[] parts = node.getHostName().split(("\\."));
             for (int i = 0; i < parts.length; i++) {
@@ -439,10 +441,11 @@ public class DNSLookupService {
             dOutput.writeShort(0x0001);
 
             byte[] byteArray = bOutput.toByteArray();
-            DatagramPacket requestPacket = new DatagramPacket(byteArray, byteArray.length, server, DEFAULT_DNS_PORT);
+            requestPacket = new DatagramPacket(byteArray, byteArray.length, server, DEFAULT_DNS_PORT);
             socket = new DatagramSocket();
             socket.setSoTimeout(5000);
             socket.send(requestPacket);
+
         } catch (Exception e) {
 
         }
@@ -452,10 +455,16 @@ public class DNSLookupService {
         try {
             socket.receive(receivePacket);
         } catch (Exception e) {
-
+            try {
+                socket.send(requestPacket);
+                socket.receive(receivePacket);
+            } catch (Exception exception) {
+                // TODO verbosePrint
+                return null;
+            }
         }
 
-        ArrayList<ResourceRecord> nameServers = receiveDecode(bufferReceive, queryID);
+        ArrayList<ResourceRecord> nameServers = receiveDecode(bufferReceive);
         if (nameServers != null) { // not authoritative
             return nameServers.get(0).getInetResult();
         } else {
@@ -472,7 +481,6 @@ public class DNSLookupService {
      * @param server Address of the server to be used for the query.
      */
     private static void retrieveResultsFromServer(DNSNode node, InetAddress server) {
-
         // TODO To be completed by the student
     }
 
