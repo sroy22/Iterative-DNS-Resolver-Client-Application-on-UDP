@@ -25,7 +25,7 @@ public class DNSLookupService {
     private static Set<Integer> queryIDs = new HashSet<>();
     private static int queryID;
     private static InetAddress nextServer;
-
+    private  static boolean endCondition=false;
     /**
      * Main function, called when program is first invoked.
      *
@@ -211,7 +211,9 @@ public class DNSLookupService {
                 }
                 break;
             default:
-                record = new ResourceRecord(recordName, RecordType.getByCode(typeVal), TTL, ipAddress);
+                System.out.println("HELLO00");
+                String defaultName = getNameFromRecord(cur, receiveBuffer);
+                record = new ResourceRecord(recordName, RecordType.getByCode(typeVal), TTL, defaultName);
                 break;
         }
         verbosePrintResourceRecord(record, typeVal);
@@ -275,10 +277,19 @@ public class DNSLookupService {
             System.out.printf("  " + "Additional Information" + " " + "(%d)" + "\n", ADDCOUNT);
         }
         List<ResourceRecord> additionalServers = decodeRecordsToList(receiveBuffer, ADDCOUNT);
-
+        if(nameServers.size()==1)
+            System.out.println("Size 1");
+       if(nameServers!=null)
+       {
+           if(nameServers.size()==1 && nameServers.get(0).getType().getCode()==6) {
+               endCondition = true;
+               System.out.println("HIII");
+           }
+       }
         if ((!isAuthoritativeServer || ANSCOUNT != 0) && RCODE == 0) {
             return matchAuthoritativeServerToAdditional(nameServers, additionalServers);
         }
+
         return null;
     }
 
@@ -394,7 +405,8 @@ public class DNSLookupService {
 
         DNSNode cnameNode = new DNSNode(node.getHostName(), RecordType.CNAME); //creating a CNAME record
 
-        for (int i = 0; i < 100; i++) {
+        while(true) {
+
             cacheResults = cache.getCachedResults(cnameNode);
             if (!cacheResults.isEmpty()) {
                 Set<ResourceRecord> possibleCNames = new HashSet<>();
@@ -408,7 +420,11 @@ public class DNSLookupService {
                     retrieveResultsFromServer(node, nameServer); // next server to look into
                     nameServer = nextServer;
                 }
-
+                if(endCondition)
+                {   System.out.println("HELLO");
+                    endCondition=false;
+                    break;
+                }
                 cacheResults = cache.getCachedResults(node); // new server contents go into cache
                 if (!cacheResults.isEmpty()) {
                     return cacheResults;
