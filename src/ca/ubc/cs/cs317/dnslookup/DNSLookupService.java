@@ -347,7 +347,7 @@ public class DNSLookupService {
             num++; // go to next byte
             if (length == 0) {
                 break; // when 00
-            } else if (length >= 192) { // first 2 bits are 11
+            } else if (length >= 192) { // 0xc0
                 int newNum = (length-192)*256+(receiveBuffer[num] & 0xFF); // read offset
                 num++;
                 rName = rName + getNameFromRecord(newNum, receiveBuffer);
