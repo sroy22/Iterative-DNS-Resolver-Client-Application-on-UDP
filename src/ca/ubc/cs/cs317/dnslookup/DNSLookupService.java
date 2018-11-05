@@ -6,8 +6,6 @@ import java.io.DataOutputStream;
 import java.net.*;
 import java.util.*;
 
-import static java.util.Random.*;
-
 public class DNSLookupService {
 
     private static final int DEFAULT_DNS_PORT = 53;
@@ -25,7 +23,8 @@ public class DNSLookupService {
     private static Set<Integer> queryIDs = new HashSet<>();
     private static int queryID;
     private static InetAddress nextServer;
-    private  static boolean endCondition=false;
+    private static boolean endCondition = false;
+
     /**
      * Main function, called when program is first invoked.
      *
@@ -171,8 +170,8 @@ public class DNSLookupService {
      * @param receiveBuffer
      * @return decoded ResourceRecord
      */
-    private static ResourceRecord decodeRecord(byte[] receiveBuffer) {
-        String recordName = getNameFromRecord(cur, receiveBuffer);
+    private static ResourceRecord decodeResourceRecord(byte[] receiveBuffer) {
+        String recordName = getNameFromResourceRecord(cur, receiveBuffer);
         int typeVal = ((receiveBuffer[cur++] & 0xFF) << 8) + (receiveBuffer[cur++] & 0xFF);
         int classVal = ((receiveBuffer[cur++] & 0xFF) << 8) + (receiveBuffer[cur++] & 0xFF);
         long TTL = ((receiveBuffer[cur++] & 0xFF) << 24) + ((receiveBuffer[cur++] & 0xFF) << 16) + ((receiveBuffer[cur++] & 0xFF) << 8) + (receiveBuffer[cur++] & 0xFF);
@@ -194,7 +193,7 @@ public class DNSLookupService {
                 break;
             case 2: // Type NS
             case 5: // Type CNAME
-                String name = getNameFromRecord(cur, receiveBuffer);
+                String name = getNameFromResourceRecord(cur, receiveBuffer);
                 record = new ResourceRecord(recordName, RecordType.getByCode(typeVal), TTL, name);
                 break;
             case 28: // Type AAAA IPv6
@@ -211,8 +210,7 @@ public class DNSLookupService {
                 }
                 break;
             default:
-                System.out.println("HELLO00");
-                String defaultName = getNameFromRecord(cur, receiveBuffer);
+                String defaultName = getNameFromResourceRecord(cur, receiveBuffer);
                 record = new ResourceRecord(recordName, RecordType.getByCode(typeVal), TTL, defaultName);
                 break;
         }
@@ -227,7 +225,7 @@ public class DNSLookupService {
      * @param receiveBuffer
      * @return list of decoded ResourceRecords from server response
      */
-    private static List<ResourceRecord> receiveDecode(byte[] receiveBuffer) {
+    private static List<ResourceRecord> decodeServerResponse(byte[] receiveBuffer) {
         int receiveID = ((receiveBuffer[0] & 0xFF) << 8) + (receiveBuffer[1] & 0xFF);
         if (queryID != receiveID) {
             return null;
@@ -248,8 +246,8 @@ public class DNSLookupService {
 
         cur = 12; // starting from Question section 12 byte
         String qName = "";
-        int flag=0;
-        while (flag==0) {
+        int flag = 0;
+        while (flag == 0) {
             int length = (receiveBuffer[cur] & 0xFF);
             cur++; // go to next byte
             if (length == 0) {
@@ -277,15 +275,12 @@ public class DNSLookupService {
             System.out.printf("  " + "Additional Information" + " " + "(%d)" + "\n", ADDCOUNT);
         }
         List<ResourceRecord> additionalServers = decodeRecordsToList(receiveBuffer, ADDCOUNT);
-        if(nameServers.size()==1)
-            System.out.println("Size 1");
-        if(nameServers!=null)
-        {
-            if(nameServers.size()==1 && nameServers.get(0).getType().getCode()==6) {
-                endCondition = true;
-                System.out.println("HIII");
-            }
+
+        // if only SOA record is found
+        if (nameServers.size() == 1 && nameServers.get(0).getType() == RecordType.SOA) {
+            endCondition = true;
         }
+
         if ((!isAuthoritativeServer || ANSCOUNT != 0) && RCODE == 0) {
             return matchAuthoritativeServerToAdditional(nameServers, additionalServers);
         }
@@ -303,7 +298,7 @@ public class DNSLookupService {
     private static List<ResourceRecord> decodeRecordsToList(byte[] receiveBuffer, int count) {
         List<ResourceRecord> list = new ArrayList<>();
         for (int i = 0; i < count; i++) {
-            ResourceRecord resourceRecord = decodeRecord(receiveBuffer);
+            ResourceRecord resourceRecord = decodeResourceRecord(receiveBuffer);
             if (resourceRecord != null) {
                 list.add(resourceRecord);
                 cache.addResult(resourceRecord);
@@ -350,29 +345,29 @@ public class DNSLookupService {
         return null;
     }
 
-    private static String getNameFromRecord(int num, byte[] receiveBuffer) {
+    private static String getNameFromResourceRecord(int num, byte[] receiveBuffer) {
         String rName = "";
-        int flag=0;
-        while (flag==0) {
+        int flag = 0;
+        while (flag == 0) { // loop until ending byte 00 is hit
             int length = (receiveBuffer[num] & 0xFF);
             num++; // go to next byte
             if (length == 0) {
                 break; // when 00
             } else if (length >= 192) { // 0xc0
-                int newNum = (length-192)*256+(receiveBuffer[num] & 0xFF); // read offset
+                int newNum = (length - 192) * 256 + (receiveBuffer[num] & 0xFF); // read offset
                 num++;
-                rName = rName + getNameFromRecord(newNum, receiveBuffer);
+                rName = rName.concat(getNameFromResourceRecord(newNum, receiveBuffer));
                 break;
             } else {
                 for (int i = 0; i < length; i++) {
                     rName = rName + (char) (receiveBuffer[num] & 0xff);
                     num++;
                 }
-                rName = rName + ".";
+                rName = rName.concat(".");
             }
 
         }
-        if (rName.length() > 1 && rName.charAt(rName.length() - 1) == '.') {
+        if (rName.length() > 0 && rName.charAt(rName.length() - 1) == '.') {
             rName = rName.substring(0, rName.length() - 1);
         }
         cur = num;
@@ -405,8 +400,7 @@ public class DNSLookupService {
 
         DNSNode cnameNode = new DNSNode(node.getHostName(), RecordType.CNAME); //creating a CNAME record
 
-        while(true) {
-
+        while (true) {
             cacheResults = cache.getCachedResults(cnameNode);
             if (!cacheResults.isEmpty()) {
                 Set<ResourceRecord> possibleCNames = new HashSet<>();
@@ -420,11 +414,12 @@ public class DNSLookupService {
                     retrieveResultsFromServer(node, nameServer); // next server to look into
                     nameServer = nextServer;
                 }
-                if(endCondition)
-                {   System.out.println("HELLO");
-                    endCondition=false;
+
+                if (endCondition) {
+                    endCondition = false;
                     break;
                 }
+
                 cacheResults = cache.getCachedResults(node); // new server contents go into cache
                 if (!cacheResults.isEmpty()) {
                     return cacheResults;
@@ -511,7 +506,7 @@ public class DNSLookupService {
             return;
         }
 
-        List<ResourceRecord> nameServers = receiveDecode(bufferReceive);
+        List<ResourceRecord> nameServers = decodeServerResponse(bufferReceive);
         nextServer = nameServers != null ? nameServers.get(0).getInetResult() : null;
     }
 
