@@ -354,7 +354,7 @@ public class DNSLookupService {
             if (length == 0) {
                 break; // when 00
             } else if (length >= 192) { // 0xc0
-                int newNum = (length - 192) * 256 + (receiveBuffer[num] & 0xFF); // read offset
+                int newNum = ((receiveBuffer[num-1]&0x3F)<<8) + (receiveBuffer[num] & 0xFF); // read offset
                 num++;
                 rName = rName.concat(getNameFromResourceRecord(newNum, receiveBuffer));
                 break;
