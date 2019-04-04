@@ -31,6 +31,10 @@ public class DNSLookupService {
      * @param args list of arguments specified in the command line.
      */
     public static void main(String[] args) {
+        Scanner input= new Scanner(System.in);
+        String str;
+        str=input.nextLine();
+        System.out.println(str);
 
         if (args.length != 1) {
             System.err.println("Invalid call. Usage:");
